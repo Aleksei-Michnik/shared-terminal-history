@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Append a command run by a coding agent to the shared bash history.
+#
+# Coding agents run shell commands through a non-interactive `bash -c`, which never
+# sources ~/.bashrc and keeps no history of its own. This script is how such a command
+# reaches the shared history, and it is the single integration point every agent uses.
+#
+# Usage:
+#   record-command [--source NAME] [--field JQ_PATH] [--cwd DIR] [-- COMMAND...]
+#
+#   With COMMAND      : record that literal command.
+#   Without COMMAND   : read stdin. JSON stdin is mined for the command text (see
+#                       --field); non-JSON stdin is taken as the command text itself.
+#
+# Options:
+#   --source NAME   Label recorded in the audit log. Default: "agent".
+#   --field PATH    jq path to the command inside a JSON payload. May be repeated.
+#                   Default: try .tool_input.command, .command, .input.command,
+#                   .args.command, .params.command, .tool_input.cmd — first hit wins.
+#   --cwd DIR       Working directory for the audit log. Default: the payload's .cwd,
+#                   else $PWD.
+#
+# Examples:
+#   record-command --source claude-code                 < hook-payload.json
+#   record-command --source my-agent -- "npm test"
+#   echo 'ls -la' | record-command --source wrapper
+#
+# Always exits 0. A logging failure must never disturb the agent it observes, and many
+# agents treat a non-zero hook as a blocking error.
+#
+# Agents parse a hook's stdout, so this script writes NOTHING to stdout unless --debug
+# is passed. Keep it that way when editing.
+
+set -uo pipefail
+
+SOURCE_NAME="agent"
+CWD_OVERRIDE=""
+DEBUG=0
+FIELDS=()
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        --source) SOURCE_NAME=${2:-agent}; shift 2 ;;
+        --field)  FIELDS+=("${2:-}"); shift 2 ;;
+        --cwd)    CWD_OVERRIDE=${2:-}; shift 2 ;;
+        --debug)  DEBUG=1; shift ;;
+        --)       shift; break ;;
+        -*)       shift ;;                       # ignore unknown flags, never fail
+        *)        break ;;
+    esac
+done
+
+if [ ${#FIELDS[@]} -eq 0 ]; then
+    FIELDS=(.tool_input.command .command .input.command .args.command .params.command .tool_input.cmd)
+fi
+
+HIST_FILE="${SHARED_HISTFILE:-$HOME/.bash_history}"
+DATA_DIR="${SHARED_HISTORY_DATA_DIR:-$HOME/.local/share/shared-terminal-history}"
+AUDIT_LOG="$DATA_DIR/agent-commands.jsonl"
+LOCK_FILE="$DATA_DIR/lock"
+
+log() { [ "$DEBUG" = 1 ] && printf 'record-command: %s\n' "$*" >&2; return 0; }
+
+mkdir -p "$DATA_DIR" 2>/dev/null || exit 0
+
+payload=""
+command_text=""
+payload_cwd=""
+
+if [ $# -gt 0 ]; then
+    command_text="$*"
+else
+    payload=$(cat 2>/dev/null)
+    [ -n "$payload" ] || { log "empty stdin"; exit 0; }
+
+    if command -v jq >/dev/null 2>&1 && printf '%s' "$payload" | jq -e . >/dev/null 2>&1; then
+        for field in "${FIELDS[@]}"; do
+            command_text=$(printf '%s' "$payload" | jq -r "$field // empty" 2>/dev/null)
+            [ -n "$command_text" ] && { log "matched field $field"; break; }
+        done
+        payload_cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
+    else
+        # Not JSON (or no jq): treat the whole of stdin as the command.
+        command_text=$payload
+        payload=""
+    fi
+fi
+
+[ -n "$command_text" ] || { log "no command found"; exit 0; }
+
+command_text=${command_text%$'\n'}
+epoch=$(date +%s)
+cwd=${CWD_OVERRIDE:-${payload_cwd:-$PWD}}
+
+# A bash history file holds one entry per line, so a multi-line command must be folded
+# onto a single line. Newlines become literal \n escapes rather than raw lines: raw
+# lines would split one command into several independently recallable entries, and a
+# fragment such as `rm -rf "$dir"` recalled on its own is dangerous. The unmodified
+# command is preserved in the audit log. Single-line commands are written byte-for-byte.
+if [[ $command_text == *$'\n'* ]]; then
+    hist_line=${command_text//\\/\\\\}
+    hist_line=${hist_line//$'\n'/\\n}
+    hist_line=${hist_line//$'\r'/\\r}
+else
+    hist_line=$command_text
+fi
+
+{
+    flock -x 9 2>/dev/null || true      # best effort: still append if flock is absent
+
+    printf '#%s\n%s\n' "$epoch" "$hist_line" >>"$HIST_FILE"
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -cn \
+            --arg time "$(date -Is)" \
+            --argjson epoch "$epoch" \
+            --arg source "$SOURCE_NAME" \
+            --arg cwd "$cwd" \
+            --arg command "$command_text" \
+            --arg session "$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null)" \
+            --arg event "$(printf '%s' "$payload" | jq -r '.hook_event_name // empty' 2>/dev/null)" \
+            '{time: $time, epoch: $epoch, source: $source, event: (($event | select(. != "")) // null),
+              session: (($session | select(. != "")) // null), cwd: $cwd, command: $command}' \
+            >>"$AUDIT_LOG" 2>/dev/null
+    fi
+} 9>"$LOCK_FILE"
+
+log "recorded: $hist_line"
+exit 0
