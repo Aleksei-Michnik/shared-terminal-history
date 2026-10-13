@@ -210,8 +210,8 @@ after `~/.bashrc` has run.
 - **Appends are best-effort under concurrency.** This project's writers serialise on `flock`;
   bash's own `history -a` does not take that lock. Bash appends with `O_APPEND` in a single
   write, so interleaving is very unlikely, but it is not a hard guarantee.
-- **Secrets land in the history** unless you type a leading space. `~/.bash_history` is `0600`,
-  but it is plain text.
+- **Secrets land in the history** unless you type a leading space. The history and the agent
+  audit log are created `0600` (the audit log in a `0700` directory), but they are plain text.
 - **Bash only.** Zsh and fish have their own sharing mechanisms and are not covered.
 
 ## Licence

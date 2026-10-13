@@ -4,6 +4,9 @@
 
 set -uo pipefail
 
+# trim replaces the history file; the replacement stays as private as bash's own 0600.
+umask 077
+
 CONFIG="${SHARED_HISTORY_CONFIG:-$HOME/.config/shared-terminal-history/config}"
 [ -r "$CONFIG" ] && . "$CONFIG"
 

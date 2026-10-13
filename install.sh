@@ -41,6 +41,8 @@ command -v flock >/dev/null 2>&1 || warn "flock not found — appends will be un
 
 # ---------------------------------------------------------------------- install
 mkdir -p "$INSTALL_DIR" "$DATA_DIR" "$BIN_DIR"
+# The agent audit log lives here; this also closes a directory an earlier version left open.
+chmod 700 "$DATA_DIR"
 install -m 0644 "$REPO_DIR/shell/shell-init.bash" "$INSTALL_DIR/shell-init.bash"
 install -m 0755 "$REPO_DIR/hooks/record-command"  "$INSTALL_DIR/record-command"
 install -m 0755 "$REPO_DIR/bin/shared-history"    "$BIN_DIR/shared-history"

@@ -33,6 +33,9 @@
 
 set -uo pipefail
 
+# The history and the audit log hold every command an agent ran: keep what this creates private.
+umask 077
+
 SOURCE_NAME="agent"
 CWD_OVERRIDE=""
 DEBUG=0
