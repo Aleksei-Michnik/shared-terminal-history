@@ -51,9 +51,10 @@ say "installed into $INSTALL_DIR and $BIN_DIR"
 # Config is written once and then left alone, so re-running never clobbers edits.
 if [ ! -f "$INSTALL_DIR/config" ]; then
     cat >"$INSTALL_DIR/config" <<EOF
-# shared-terminal-history configuration. Sourced by shell-init.bash and shared-history.
+# shared-terminal-history configuration. Sourced by shell-init.bash, shared-history and
+# record-command.
 
-# How many commands to keep. -1 for unlimited.
+# How many commands the history and the agent audit log each keep. -1 for unlimited.
 SHARED_HISTORY_MAX=$MAX_COMMANDS
 
 # The shared store. Every terminal and every agent hook appends here.

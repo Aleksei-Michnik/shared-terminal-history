@@ -59,10 +59,22 @@ if [ ${#FIELDS[@]} -eq 0 ]; then
     FIELDS=(.tool_input.command .command .input.command .args.command .params.command .tool_input.cmd)
 fi
 
+# The config terminals and shared-history read too: SHARED_HISTFILE, SHARED_HISTORY_MAX.
+# Sourced without -u, so a slip in it cannot make this hook fail.
+CONFIG="${SHARED_HISTORY_CONFIG:-$HOME/.config/shared-terminal-history/config}"
+if [ -r "$CONFIG" ]; then
+    set +u
+    # shellcheck source=/dev/null
+    . "$CONFIG" >/dev/null 2>&1
+    set -u
+fi
+
 HIST_FILE="${SHARED_HISTFILE:-$HOME/.bash_history}"
 DATA_DIR="${SHARED_HISTORY_DATA_DIR:-$HOME/.local/share/shared-terminal-history}"
 AUDIT_LOG="$DATA_DIR/agent-commands.jsonl"
 LOCK_FILE="$DATA_DIR/lock"
+MAX_COMMANDS="${SHARED_HISTORY_MAX:-19999}"
+[[ $MAX_COMMANDS =~ ^(-1|[0-9]+)$ ]] || MAX_COMMANDS=19999
 
 log() { [ "$DEBUG" = 1 ] && printf 'record-command: %s\n' "$*" >&2; return 0; }
 
@@ -127,6 +139,13 @@ fi
             '{time: $time, epoch: $epoch, source: $source, event: (($event | select(. != "")) // null),
               session: (($session | select(. != "")) // null), cwd: $cwd, command: $command}' \
             >>"$AUDIT_LOG" 2>/dev/null
+    fi
+
+    # The audit log keeps the newest SHARED_HISTORY_MAX entries, as the history does. It is
+    # cut back only once a tenth over the cap, so most calls just append.
+    if [ "$MAX_COMMANDS" != -1 ] && [ -f "$AUDIT_LOG" ] &&
+       [ "$(wc -l <"$AUDIT_LOG")" -gt $((MAX_COMMANDS + MAX_COMMANDS / 10)) ]; then
+        tail -n "$MAX_COMMANDS" "$AUDIT_LOG" >"$AUDIT_LOG.trim.$$" && mv "$AUDIT_LOG.trim.$$" "$AUDIT_LOG"
     fi
 } 9>"$LOCK_FILE"
 

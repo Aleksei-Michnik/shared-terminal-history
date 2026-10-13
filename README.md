@@ -112,7 +112,7 @@ shared-history status          # where it lives, how full, whether the wiring is
 shared-history tail 40         # last 40 commands from any terminal, with timestamps
 shared-history search docker   # case-insensitive grep, oldest first, with timestamps
 shared-history agents 20       # last 20 commands your agents ran, with working directory
-shared-history trim            # enforce the cap right now
+shared-history trim            # enforce the cap on the history and the audit log now
 shared-history doctor          # check every part of the setup
 ```
 
@@ -154,7 +154,7 @@ See [agents/README.md](agents/README.md) for the full contract and how to add on
 `~/.config/shared-terminal-history/config`, written once at install and never overwritten:
 
 ```bash
-SHARED_HISTORY_MAX=19999          # commands to keep; -1 for unlimited
+SHARED_HISTORY_MAX=19999  # commands the history and the audit log each keep; -1 for unlimited
 # SHARED_HISTFILE="$HOME/.bash_history"
 # SHARED_HISTORY_TIMEFORMAT='%F %T  '
 ```
@@ -193,8 +193,9 @@ after `~/.bashrc` has run.
 - **Multi-line agent commands** are folded onto one line with literal `\n` escapes. Writing raw
   lines would split one command into several independently recallable entries, and a fragment
   like `rm -rf "$dir"` recalled on its own is dangerous. Single-line commands are byte-exact.
-  The unmodified command is always kept in the audit log,
-  `~/.local/share/shared-terminal-history/agent-commands.jsonl`.
+  The unmodified command is kept in the audit log,
+  `~/.local/share/shared-terminal-history/agent-commands.jsonl`, which holds the newest
+  `SHARED_HISTORY_MAX` agent commands.
 - **Load order matters.** The `.bashrc` block goes last. Anything sourced after it that assigns
   `PROMPT_COMMAND=` (rather than appending) silently disables the sync.
 - **Hooks must not write to stdout.** Agents parse a hook's stdout as a control document.

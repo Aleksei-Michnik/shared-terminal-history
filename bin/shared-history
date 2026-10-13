@@ -124,12 +124,26 @@ cmd_agents() {
         jq -r '"\(.time)  [\(.source)]  \(.cwd // "?")\n    \(.command | gsub("\n"; "\n    "))"'
 }
 
+# Keep the newest SHARED_HISTORY_MAX entries of the agent audit log.
+trim_audit_log() {
+    local entries
+    [ -f "$AUDIT_LOG" ] || return 0
+    entries=$(wc -l <"$AUDIT_LOG")
+    [ "$entries" -gt "$MAX_COMMANDS" ] || return 0
+    (
+        flock -x 9 2>/dev/null || true
+        tail -n "$MAX_COMMANDS" "$AUDIT_LOG" >"$AUDIT_LOG.trim.$$" && mv "$AUDIT_LOG.trim.$$" "$AUDIT_LOG"
+    ) 9>"$LOCK_FILE"
+    echo "trimmed $((entries - MAX_COMMANDS)) old agent commands from the audit log"
+}
+
 cmd_trim() {
     local count drop
     count=$(count_commands)
     if [ "$MAX_COMMANDS" = "-1" ]; then
         echo "SHARED_HISTORY_MAX is -1 (unlimited) — nothing to trim"; return 0
     fi
+    trim_audit_log
     if [ "$count" -le "$MAX_COMMANDS" ]; then
         echo "$count commands, at or under the $MAX_COMMANDS cap — nothing to do"; return 0
     fi
