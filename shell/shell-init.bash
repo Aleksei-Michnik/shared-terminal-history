@@ -23,8 +23,9 @@ if [ -r "${SHARED_HISTORY_CONFIG:-$HOME/.config/shared-terminal-history/config}"
     . "${SHARED_HISTORY_CONFIG:-$HOME/.config/shared-terminal-history/config}"
 fi
 
-# The single shared store. Every terminal, and every agent hook, appends here.
-export HISTFILE="${SHARED_HISTFILE:-$HOME/.bash_history}"
+# The single shared store. Every terminal, and every agent hook, appends here. Not exported:
+# a child bash that inherits HISTFILE truncates the file as soon as it assigns HISTFILESIZE.
+HISTFILE="${SHARED_HISTFILE:-$HOME/.bash_history}"
 
 # How many commands to keep. Anything non-numeric falls back to the default.
 : "${SHARED_HISTORY_MAX:=19999}"
