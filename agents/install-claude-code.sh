@@ -26,22 +26,28 @@ cp "$SETTINGS" "$SETTINGS.bak-shared-terminal-history"
 # needed to cover every command that actually ran. PreToolUse is deliberately not used:
 # it fires before the permission prompt, so it would log commands the user declined.
 tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
 jq --arg cmd "$RECORDER" '
     def entry: {
         matcher: "Bash",
         hooks: [{ type: "command", command: $cmd, args: ["--source", "claude-code"], timeout: 10 }]
     };
-    # Drop any previous entry of ours, keep everyone else, then append the current one.
+    # Ours: this recorder, or one installed under the default path. Handlers of the other
+    # types (prompt, agent, ...) carry no command at all.
+    def ours: (.command? // "") as $c | $c == $cmd or ($c | test("shared-terminal-history/record-command"));
+    # Drop our previous handlers, keep every other handler and its group, then append ours.
     def wire($event):
         .hooks[$event] = (
-            ((.hooks[$event] // []) | map(select(
-                [.hooks[]? | select(.command | test("record-command"))] | length == 0
-            ))) + [entry]
+            ((.hooks[$event] // []) | map(
+                if any(.hooks[]?; ours)
+                then .hooks |= map(select(ours | not)) | select(.hooks | length > 0)
+                else . end
+            )) + [entry]
         );
     .hooks = (.hooks // {}) | wire("PostToolUse") | wire("PostToolUseFailure")
 ' "$SETTINGS" >"$tmp"
 
-jq -e . "$tmp" >/dev/null 2>&1 || { echo "refusing to write invalid JSON" >&2; rm -f "$tmp"; exit 1; }
+jq -e . "$tmp" >/dev/null 2>&1 || { echo "refusing to write invalid JSON" >&2; exit 1; }
 mv "$tmp" "$SETTINGS"
 
 echo "registered PostToolUse + PostToolUseFailure Bash hooks in $SETTINGS"

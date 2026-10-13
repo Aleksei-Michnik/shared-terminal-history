@@ -4,6 +4,9 @@
 
 set -uo pipefail
 
+# trim replaces the history file; the replacement stays as private as bash's own 0600.
+umask 077
+
 CONFIG="${SHARED_HISTORY_CONFIG:-$HOME/.config/shared-terminal-history/config}"
 [ -r "$CONFIG" ] && . "$CONFIG"
 
@@ -13,6 +16,10 @@ INSTALL_DIR="${SHARED_HISTORY_HOME:-$HOME/.config/shared-terminal-history}"
 AUDIT_LOG="$DATA_DIR/agent-commands.jsonl"
 LOCK_FILE="$DATA_DIR/lock"
 MAX_COMMANDS="${SHARED_HISTORY_MAX:-19999}"
+
+# A HISTFILESIZE=<number> line in .bashrc, which truncates the history at every new
+# terminal; the same pattern install.sh comments out.
+TRUNCATING="^[[:space:]]*((export|declare|typeset)[[:space:]]+(-[[:alpha:]]+[[:space:]]+)?)?HISTFILESIZE=[\"']?[0-9]+[\"']?[[:space:]]*(#.*)?\$"
 
 usage() {
     cat <<'EOF'
@@ -72,6 +79,13 @@ cmd_doctor() {
     check "shell-init.bash installed" "$( [ -r "$INSTALL_DIR/shell-init.bash" ] && echo ok )"
     check "~/.bashrc sources shell-init.bash" \
         "$(grep -qF 'shared-terminal-history/shell-init.bash' "$HOME/.bashrc" 2>/dev/null && echo ok)"
+    local truncating
+    truncating=$(grep -nE "$TRUNCATING" "$HOME/.bashrc" 2>/dev/null)
+    check ".bashrc sets no HISTFILESIZE that truncates the history" "$( [ -z "$truncating" ] && echo ok )"
+    if [ -n "$truncating" ]; then
+        printf '%s\n' "$truncating" | sed 's/^\([0-9]*\):/          line \1: /'
+        echo "          re-run install.sh to comment it out"
+    fi
     check "record-command installed and executable" "$( [ -x "$INSTALL_DIR/record-command" ] && echo ok )"
     check "jq installed (needed for agent hooks)" "$(command -v jq >/dev/null && echo ok)"
     check "flock installed (append locking)" "$(command -v flock >/dev/null && echo ok)"
@@ -80,8 +94,8 @@ cmd_doctor() {
     echo "agents:"
     local settings="$HOME/.claude/settings.json"
     if [ -f "$settings" ] && command -v jq >/dev/null 2>&1; then
-        if jq -e '.hooks.PostToolUse[]? | select(.matcher == "Bash") | .hooks[]
-                  | select(.command | test("record-command"))' "$settings" >/dev/null 2>&1; then
+        if jq -e '.hooks.PostToolUse[]? | select(.matcher == "Bash") | .hooks[]?
+                  | select((.command? // "") | test("record-command"))' "$settings" >/dev/null 2>&1; then
             printf '  OK    Claude Code hook registered\n'
         else
             printf '  --    Claude Code present but hook not registered (see agents/claude-code.md)\n'
@@ -110,12 +124,26 @@ cmd_agents() {
         jq -r '"\(.time)  [\(.source)]  \(.cwd // "?")\n    \(.command | gsub("\n"; "\n    "))"'
 }
 
+# Keep the newest SHARED_HISTORY_MAX entries of the agent audit log.
+trim_audit_log() {
+    local entries
+    [ -f "$AUDIT_LOG" ] || return 0
+    entries=$(wc -l <"$AUDIT_LOG")
+    [ "$entries" -gt "$MAX_COMMANDS" ] || return 0
+    (
+        flock -x 9 2>/dev/null || true
+        tail -n "$MAX_COMMANDS" "$AUDIT_LOG" >"$AUDIT_LOG.trim.$$" && mv "$AUDIT_LOG.trim.$$" "$AUDIT_LOG"
+    ) 9>"$LOCK_FILE"
+    echo "trimmed $((entries - MAX_COMMANDS)) old agent commands from the audit log"
+}
+
 cmd_trim() {
     local count drop
     count=$(count_commands)
     if [ "$MAX_COMMANDS" = "-1" ]; then
         echo "SHARED_HISTORY_MAX is -1 (unlimited) — nothing to trim"; return 0
     fi
+    trim_audit_log
     if [ "$count" -le "$MAX_COMMANDS" ]; then
         echo "$count commands, at or under the $MAX_COMMANDS cap — nothing to do"; return 0
     fi
