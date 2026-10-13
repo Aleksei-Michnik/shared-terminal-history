@@ -75,6 +75,7 @@ AUDIT_LOG="$DATA_DIR/agent-commands.jsonl"
 LOCK_FILE="$DATA_DIR/lock"
 MAX_COMMANDS="${SHARED_HISTORY_MAX:-19999}"
 [[ $MAX_COMMANDS =~ ^(-1|[0-9]+)$ ]] || MAX_COMMANDS=19999
+MAX_ENTRY=4096
 
 log() { [ "$DEBUG" = 1 ] && printf 'record-command: %s\n' "$*" >&2; return 0; }
 
@@ -120,6 +121,13 @@ if [[ $command_text == *$'\n'* ]]; then
     hist_line=${hist_line//$'\r'/\\r}
 else
     hist_line=$command_text
+fi
+
+# Every terminal reloads the whole history at every prompt, so an overlong command (a heredoc
+# that writes a whole file) is recorded as a comment naming it, with its start for Ctrl-R.
+# A comment rather than a cut: a cut command recalled with Up-arrow could still run.
+if [ ${#hist_line} -gt "$MAX_ENTRY" ]; then
+    hist_line="# [${#command_text}-character command, in full in the agent audit log] ${hist_line:0:200}"
 fi
 
 {

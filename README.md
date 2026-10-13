@@ -192,10 +192,14 @@ after `~/.bashrc` has run.
 
 - **Multi-line agent commands** are folded onto one line with literal `\n` escapes. Writing raw
   lines would split one command into several independently recallable entries, and a fragment
-  like `rm -rf "$dir"` recalled on its own is dangerous. Single-line commands are byte-exact.
-  The unmodified command is kept in the audit log,
+  like `rm -rf "$dir"` recalled on its own is dangerous. Single-line commands are byte-exact,
+  up to the length limit below. The unmodified command is kept in the audit log,
   `~/.local/share/shared-terminal-history/agent-commands.jsonl`, which holds the newest
   `SHARED_HISTORY_MAX` agent commands.
+- **Agent commands over 4096 characters** — a heredoc that writes a whole file — are recorded
+  as a `#` comment giving their length, followed by their first 200 characters. Every terminal
+  reloads the whole history at every prompt, and a command cut short could still run when
+  recalled; the comment cannot. The audit log keeps them in full.
 - **Load order matters.** The `.bashrc` block goes last. Anything sourced after it that assigns
   `PROMPT_COMMAND=` (rather than appending) silently disables the sync.
 - **Hooks must not write to stdout.** Agents parse a hook's stdout as a control document.
