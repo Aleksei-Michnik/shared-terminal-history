@@ -69,10 +69,35 @@ fi
 # The block goes at the END of .bashrc: anything sourced later that assigns
 # PROMPT_COMMAND= would otherwise drop the sync.
 MARKER='shared-terminal-history/shell-init.bash'
+
+# Bash truncates the history file the moment HISTFILESIZE is assigned a number, so a line
+# such as Ubuntu's stock HISTFILESIZE=2000 cuts the shared history back at every new
+# terminal, before the block at the end can raise the cap. Such lines are commented out
+# behind DISABLED, which uninstall.sh strips again; `shared-history doctor` checks for them.
+DISABLED='# [shared-terminal-history] '
+TRUNCATING="^[[:space:]]*((export|declare|typeset)[[:space:]]+(-[[:alpha:]]+[[:space:]]+)?)?HISTFILESIZE=[\"']?[0-9]+[\"']?[[:space:]]*(#.*)?\$"
+truncating=$(grep -nE "$TRUNCATING" "$BASHRC" 2>/dev/null || true)
+
+if [ -f "$BASHRC" ] && { [ -n "$truncating" ] || ! grep -qF "$MARKER" "$BASHRC"; }; then
+    cp "$BASHRC" "$BASHRC.bak-shared-terminal-history"
+fi
+
+if [ -n "$truncating" ]; then
+    tmp=$(mktemp)
+    awk -v lines="$(printf '%s\n' "$truncating" | cut -d: -f1 | tr '\n' ' ')" -v tag="$DISABLED" '
+        BEGIN { n = split(lines, l, " "); for (i = 1; i <= n; i++) hit[l[i]] = 1 }
+        NR in hit { $0 = tag $0 }
+        { print }
+    ' "$BASHRC" >"$tmp"
+    cat "$tmp" >"$BASHRC"
+    rm -f "$tmp"
+    say "commented out what truncated the history at every new terminal (backup: $BASHRC.bak-shared-terminal-history):"
+    printf '%s\n' "$truncating" | sed 's/^\([0-9]*\):/      line \1: /'
+fi
+
 if grep -qF "$MARKER" "$BASHRC" 2>/dev/null; then
     say "$BASHRC already sources shell-init.bash"
 else
-    [ -f "$BASHRC" ] && cp "$BASHRC" "$BASHRC.bak-shared-terminal-history"
     cat >>"$BASHRC" <<'EOF'
 
 # shared-terminal-history — one history across all terminals.
@@ -82,6 +107,14 @@ if [ -r "$HOME/.config/shared-terminal-history/shell-init.bash" ]; then
 fi
 EOF
     say "appended the source block to $BASHRC (backup: $BASHRC.bak-shared-terminal-history)"
+fi
+
+# A PROMPT_COMMAND of its own that runs `history -a` and friends syncs a second time at
+# every prompt. Only reported: such a line may carry other work too.
+syncing=$(grep -nE '^[^#]*PROMPT_COMMAND.*history[[:space:]]+-[acnr]' "$BASHRC" 2>/dev/null || true)
+if [ -n "$syncing" ]; then
+    warn "these lines sync the history as well, so every prompt syncs twice; their history part can go:"
+    printf '%s\n' "$syncing" | sed 's/^\([0-9]*\):/      line \1: /' >&2
 fi
 
 case ":$PATH:" in

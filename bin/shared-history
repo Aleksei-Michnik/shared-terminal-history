@@ -14,6 +14,10 @@ AUDIT_LOG="$DATA_DIR/agent-commands.jsonl"
 LOCK_FILE="$DATA_DIR/lock"
 MAX_COMMANDS="${SHARED_HISTORY_MAX:-19999}"
 
+# A HISTFILESIZE=<number> line in .bashrc, which truncates the history at every new
+# terminal; the same pattern install.sh comments out.
+TRUNCATING="^[[:space:]]*((export|declare|typeset)[[:space:]]+(-[[:alpha:]]+[[:space:]]+)?)?HISTFILESIZE=[\"']?[0-9]+[\"']?[[:space:]]*(#.*)?\$"
+
 usage() {
     cat <<'EOF'
 Usage: shared-history <command>
@@ -72,6 +76,13 @@ cmd_doctor() {
     check "shell-init.bash installed" "$( [ -r "$INSTALL_DIR/shell-init.bash" ] && echo ok )"
     check "~/.bashrc sources shell-init.bash" \
         "$(grep -qF 'shared-terminal-history/shell-init.bash' "$HOME/.bashrc" 2>/dev/null && echo ok)"
+    local truncating
+    truncating=$(grep -nE "$TRUNCATING" "$HOME/.bashrc" 2>/dev/null)
+    check ".bashrc sets no HISTFILESIZE that truncates the history" "$( [ -z "$truncating" ] && echo ok )"
+    if [ -n "$truncating" ]; then
+        printf '%s\n' "$truncating" | sed 's/^\([0-9]*\):/          line \1: /'
+        echo "          re-run install.sh to comment it out"
+    fi
     check "record-command installed and executable" "$( [ -x "$INSTALL_DIR/record-command" ] && echo ok )"
     check "jq installed (needed for agent hooks)" "$(command -v jq >/dev/null && echo ok)"
     check "flock installed (append locking)" "$(command -v flock >/dev/null && echo ok)"

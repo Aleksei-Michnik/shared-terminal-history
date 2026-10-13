@@ -11,15 +11,21 @@ SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
 
 say() { printf '  %s\n' "$*"; }
 
-# .bashrc: drop our block, restoring from the backup only if it is still current.
-if grep -qF 'shared-terminal-history/shell-init.bash' "$BASHRC" 2>/dev/null; then
+# .bashrc: drop our block, and restore the HISTFILESIZE lines install.sh commented out.
+DISABLED='# [shared-terminal-history] '
+if grep -qF -e 'shared-terminal-history/shell-init.bash' -e "$DISABLED" "$BASHRC" 2>/dev/null; then
     cp "$BASHRC" "$BASHRC.bak-uninstall"
-    awk '
+    awk -v tag="$DISABLED" '
         /^# shared-terminal-history — one history across all terminals\.$/ { skip = 1 }
         skip && /^fi$/ { skip = 0; next }
-        !skip { print }
+        skip { next }
+        index($0, tag) == 1 { $0 = substr($0, length(tag) + 1) }
+        { print }
     ' "$BASHRC.bak-uninstall" >"$BASHRC"
     say "removed the block from $BASHRC (backup: $BASHRC.bak-uninstall)"
+    if grep -qF "$DISABLED" "$BASHRC.bak-uninstall"; then
+        say "restored the HISTFILESIZE lines the installer had commented out"
+    fi
 fi
 
 # Claude Code: drop only our hook entries.

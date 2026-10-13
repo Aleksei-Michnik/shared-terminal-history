@@ -71,7 +71,10 @@ The installer:
 1. copies `shell-init.bash` and `record-command` into `~/.config/shared-terminal-history/`,
    and `shared-history` into `~/.local/bin/`
 2. appends a source block to the **end** of `~/.bashrc` (backing it up first)
-3. detects installed agents and offers to wire them up
+3. comments out any `HISTFILESIZE=<number>` line elsewhere in `~/.bashrc` — see
+   [the cap](#what-gets-set-and-why) — and reports any `PROMPT_COMMAND` running its own
+   `history -a`
+4. detects installed agents and offers to wire them up
 
 Then open a new terminal and check:
 
@@ -82,7 +85,8 @@ shared-history status
 Options: `./install.sh --max 50000` for a different cap, `--no-agents` to skip agent wiring.
 Re-running is safe — it upgrades in place and never clobbers your config file.
 
-To remove everything (your history file is left alone): `./uninstall.sh`
+To remove everything (your history file is left alone, and the lines the installer commented
+out come back): `./uninstall.sh`
 
 ---
 
@@ -170,9 +174,17 @@ SHARED_HISTORY_MAX=19999          # commands to keep; -1 for unlimited
 but with a shared history the "previous entry" is whatever *another terminal* ran last, so it
 would silently discard real commands.
 
-**The cap.** `HISTSIZE` bounds each terminal's in-memory list immediately. The *file* is
-truncated by bash when a shell exits, so between exits it can drift above the cap. Harmless,
-and it settles as terminals close. `shared-history trim` enforces it immediately.
+**The cap.** `HISTSIZE` bounds each terminal's in-memory list immediately. Bash truncates the
+*file* whenever `HISTFILESIZE` is assigned — so at every new terminal — and again when a shell
+exits; in between it can drift above the cap. Harmless, and it settles on its own.
+`shared-history trim` enforces it immediately.
+
+That truncation on assignment is why the installer comments out any `HISTFILESIZE=<number>`
+line elsewhere in `~/.bashrc`. Ubuntu's stock `.bashrc` sets `HISTFILESIZE=2000` near its top,
+and bash cuts the file to 2000 lines right there — at every new terminal, before the block at
+the end can raise the cap. The commented lines carry a `# [shared-terminal-history]` prefix, and
+`uninstall.sh` restores them. `HISTSIZE` lines need no such care: bash loads the history only
+after `~/.bashrc` has run.
 
 ---
 
