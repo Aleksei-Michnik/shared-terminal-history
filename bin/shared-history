@@ -94,8 +94,8 @@ cmd_doctor() {
     echo "agents:"
     local settings="$HOME/.claude/settings.json"
     if [ -f "$settings" ] && command -v jq >/dev/null 2>&1; then
-        if jq -e '.hooks.PostToolUse[]? | select(.matcher == "Bash") | .hooks[]
-                  | select(.command | test("record-command"))' "$settings" >/dev/null 2>&1; then
+        if jq -e '.hooks.PostToolUse[]? | select(.matcher == "Bash") | .hooks[]?
+                  | select((.command? // "") | test("record-command"))' "$settings" >/dev/null 2>&1; then
             printf '  OK    Claude Code hook registered\n'
         else
             printf '  --    Claude Code present but hook not registered (see agents/claude-code.md)\n'
